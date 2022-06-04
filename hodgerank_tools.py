@@ -2,28 +2,58 @@ import numpy as np
 import pandas as pd
 import math
 
-def get_edges(elements):
+# returns a list of all edges in the form of tuples
+#ex: get_edges(['a', 'b', 'c']) => [('a', 'b'), ('a', 'c'), ('b','c')]
+def get_edges(nodes):
     edges = []
-    for i in range(len(elements)):
-        for j in range(i + 1, len(elements)):
-            edges.append((elements[i],elements[j]))
+    for i in range(len(nodes)):
+        for j in range(i + 1, len(nodes)):
+            edges.append((nodes[i],nodes[j]))
     return edges
 
-# f is a vector representing pairwise differences between the nodes
-# W is a diagonal matrix containing the weights of each edge
-def get_f_W(df):
-    #init edges, triangles, adj_matrix, curl, neg_divergence, f, and W
-    elements = df.columns
-    num_nodes = len(elements)
-    edges = get_edges(elements)
-   
+# Converts a voter df into a list of dictionaries, where each dictionary represents the 
+# opinions of one voter
+def df_to_dict_list(df):
+    data = []
+    nodes = df.columns
+        #row_nodes = [node_index for node_index in range(len(nodes)) if not np.isnan(row[node_index])]
+    for index, row in df.iterrows():
+    # get group of nodes that this voter has scored
+        row_nodes = [node for node in nodes if not np.isnan(row[node])]
+        voter_dict = dict()
+        for node in row_nodes:
+            voter_dict[node] = row[node]
+        data.append(voter_dict)
+    return data
+
+# gets all nodes from voter data structures as a list of dictionaries
+def get_nodes(data):
+    nodes = set()
+    for voter in data:
+        nodes.update(voter.keys())
+    nodes = list(nodes)
+    nodes.sort()
+    return nodes
+
+# returns:
+# - f is a vector representing the edge flows between the nodes. It is indexed by 
+# the edges from the get_edges function
+#  - W is a diagonal matrix containing the weights of each edge
+# where df is a pandas dataframe such that the columns represent the nodes to be ranked and each 
+# row gives a voter's ratings
+def get_f_W(data, nodes):
+    
+    edges = get_edges(nodes)
     f = np.zeros((len(edges)))
     W = np.zeros((len(edges), len(edges)))
-    for index, row in df.iterrows():
-        row_elements = [element for element in elements if not np.isnan(row[element])]
-        for edge in get_edges(row_elements):
-            f[edges.index(edge)] += row[edge[1]] - row[edge[0]]
+    # iterate through each voter's ratings
+    for voter in data:
+    
+        for edge in get_edges(list(voter.keys())):
+            # for each edge in this voter's graph, add pairwise difference to f and add 1 to W
+            f[edges.index(edge)] += voter[edge[1]] - voter[edge[0]]
             W[edges.index(edge), edges.index(edge)] += 1
+    # weighting f by W
     for i in range(len(edges)):
         if W[i, i] != 0:
             f[i] = f[i]*1/W[i,i]
@@ -31,77 +61,99 @@ def get_f_W(df):
             f[i] = 0
     return (f, W)
 
-def get_error(f, W, r, elements):
-    edges = get_edges(elements)
+#TODO: revise
+# returns the error of this ranking according to some ranking r, which is a list containing
+# the overall (numerical) rating of each node, indexed by the nodes in nodes
+def get_error(f, W, r, nodes):
+    edges = get_edges(nodes)
     sum = 0
     for i in range(len(edges)):
-        to_add = 1*(f[i] + (r[elements.index(edges[i][0])] - r[elements.index(edges[i][1])]))**2
+        to_add = (f[i] + (r[nodes.index(edges[i][0])] - r[nodes.index(edges[i][1])]))**2
         sum += to_add
     return sum
 
-def get_neg_divergence(df):
-    elements = list(df.columns)
-    edges = get_edges(elements)
-    neg_divergence = np.zeros((len(edges), len(elements)))        
-    # neg_divergence
+# returns the negative divergence matrix, structured as a numpy array, where df is a 
+# pandas dataframe such that the columns represent the nodes to be ranked and each 
+# row gives a voter's ratings
+def get_neg_divergence(nodes):
+    edges = get_edges(nodes)
+    neg_divergence = np.zeros((len(edges), len(nodes)))        
     for i, edge in enumerate(edges):
-        for j, element in enumerate(elements):
-            if edge[0] == element:
+        for j, node in enumerate(nodes):
+            if edge[0] == node:
                 neg_divergence[i,j] = -1
-            elif edge[1] == element:
+            elif edge[1] == node:
                 neg_divergence[i,j] = 1
     return neg_divergence
 
-def rank(df):
-    elements = list(df.columns)
-    edges = get_edges(elements)
-    neg_divergence = get_neg_divergence(df)
-    (f, W) = get_f_W(df)
+# ranks the nodes in the df according to HodgeRank, where df is a 
+# pandas dataframe such that the columns represent the nodes to be ranked and each 
+# row gives a voter's ratings
+# returns:
+# - pandas data frame representing the overall rating of each node, with two columns, node and
+# r, which is the numerical score
+# - error of this ranking
+def rank(data):
+    nodes = get_nodes(data)
+    # get edges, negative divergence, f, and W
+    edges = get_edges(nodes)
+    neg_divergence = get_neg_divergence(nodes)
+    (f, W) = get_f_W(data, nodes)
+    # solve for r
     right_side = np.matmul(np.transpose(neg_divergence), np.matmul(W, f))
     left_side = np.matmul(np.matmul(np.transpose(neg_divergence), W), neg_divergence)
     r = np.matmul(np.linalg.pinv(left_side), right_side)
-    rank_df = pd.DataFrame({'element': elements, 'r': r})
+    # put r into df and sort by score
+    rank_df = pd.DataFrame({'node': nodes, 'r': r})
     rank_df = rank_df.sort_values(by =['r'],  ascending = False)
     rank_df = rank_df.reset_index(drop = True)
-    #rank_df.to_csv('data/hodge_ranking.csv')
-    return(rank_df, get_error(f, W, r, elements))
+    #rank_df.to_csv('data/hodge_ranking.csv') # uncomment this line if you want to save the ranking
+    return(rank_df, get_error(f, W, r, nodes))
     
-# mean score
+# Ranks the nodes in the df by calculating the average score given to them. The input and output 
+# are structured the same as rank()
 def naive_rank_0(df):
-    elements = list(df.columns)
-    if len(list(set(elements))) != len(elements):
+    nodes = list(df.columns)
+    if len(list(set(nodes))) != len(nodes):
         raise Exception("All columns must have different names")
-    naive_r = [0]*len(elements)
-    for i, element in enumerate(elements):
-        naive_r[i] = df[element].mean()
-    naive_rank_df = pd.DataFrame({'element': elements, 'r': naive_r})
+    naive_r = [0]*len(nodes)
+    for i, node in enumerate(nodes):
+        naive_r[i] = df[node].mean()
+    naive_rank_df = pd.DataFrame({'node': nodes, 'r': naive_r})
     naive_rank_df = naive_rank_df.sort_values(by =['r'],  ascending = False)
     naive_rank_df = naive_rank_df.reset_index(drop = True)
-    return (naive_rank_df, get_error(get_f_W(df)[0], get_f_W(df)[1], naive_r, elements))
+    return (naive_rank_df, get_error(get_f_W(df)[0], get_f_W(df)[1], naive_r, nodes))
 
-# mean pairwise difference
+# Ranks the nodes in the df by calculating the mean pairwise difference of each node
+# The input and output are structured the same as rank()
+# TODO: revise this <3
 def naive_rank(df):
-    elements = list(df.columns)
-    if len(list(set(elements))) != len(elements):
+    nodes = list(df.columns)
+    if len(list(set(nodes))) != len(nodes):
         raise Exception("All columns must have different names")
-    naive_r = [0]*len(elements)
-    element_weights = [0]*len(elements)
+    naive_r = [0]*len(nodes)
+    node_weights = [0]*len(nodes)
     for index, row in df.iterrows():
-        row_elements = [element for element in elements if not np.isnan(row[element])]
-        for edge in get_edges(row_elements):
-            naive_r[elements.index(edge[0])] += row[edge[0]] - row[edge[1]]
-            naive_r[elements.index(edge[1])] += row[edge[1]] - row[edge[0]]
-            element_weights[elements.index(edge[0])] += 1
-            element_weights[elements.index(edge[1])] += 1
-    naive_r = [naive_r[i]/element_weights[i] for i in range(len(naive_r))]
-    naive_rank_df = pd.DataFrame({'element': elements,'r': naive_r})
+        row_nodes = [node for node in nodes if not np.isnan(row[node])]
+        for edge in get_edges(row_nodes):
+            naive_r[nodes.index(edge[0])] += row[edge[0]] - row[edge[1]]
+            naive_r[nodes.index(edge[1])] += row[edge[1]] - row[edge[0]]
+            node_weights[nodes.index(edge[0])] += 1
+            node_weights[nodes.index(edge[1])] += 1
+    for i in range(len(naive_r)):
+        if node_weights[i] != 0:
+            naive_r[i] = naive_r[i]/node_weights[i]
+        else:
+            naive_r[i] = - 100000
+    #naive_r = [naive_r[i]/node_weights[i] for i in range(len(naive_r))]
+    naive_rank_df = pd.DataFrame({'node': nodes,'r': naive_r})
     naive_rank_df = naive_rank_df.sort_values(by =['r'],  ascending = False)
     naive_rank_df = naive_rank_df.reset_index(drop = True)
-    return (naive_rank_df, get_error(get_f_W(df)[0], get_f_W(df)[1], naive_r, elements))
+    return (naive_rank_df, get_error(get_f_W(df)[0], get_f_W(df)[1], naive_r, nodes))
 
-# a (very convulated) way to almost evenly distribute all nodes into 
-# groupings such that each group has at least 
-# group_size number of nodes
+# where k is the number of groups, returns a list of lengths of how big each
+# group of nodes should be
+# ex: get_group_lengths({df with 10 nodes/ cols}, 3) => [4, 3, 3]
 def get_group_lengths(df, k):
     num_nodes = len(list(df.columns))
     group_size = math.floor(num_nodes/k)
@@ -110,13 +162,15 @@ def get_group_lengths(df, k):
         group_lengths[n % len(group_lengths)] += 1
     return(group_lengths)
 
+# where k is the number of groups, returns a list of groupings of the nodes in df
+# ex: group_similar_scoring({df with cols 'a', 'b', 'c'}, 2) => [['a', 'b'], ['c']]
 def group_similar_scoring(df, k):
     naive_r = naive_rank(df)[0]
     # sort by score
-    scores_df = naive_r[['r', 'element']]
+    scores_df = naive_r[['r', 'node']]
     scores_df = scores_df.sort_values(by =['r'],  ascending = False)
     scores_df = scores_df.reset_index(drop = True)
-    ranked_teams = list(scores_df["element"])
+    ranked_teams = list(scores_df["node"])
     # fill list with groups of teams, sorted by score
     groupings = []
     for group_length in get_group_lengths(df, k):
@@ -124,9 +178,11 @@ def group_similar_scoring(df, k):
         ranked_teams = ranked_teams[group_length:]
     return(groupings)
 
+# Ranks the nodes in df by creating rankings on k different groups (organized by naive_rank()) 
+# and stacking the final scores on top of eachother
 def simple_group_rank(df, k):
     groupings = group_similar_scoring(df, k)
-    r_groups = pd.DataFrame(columns = ['element', 'r'])
+    r_groups = pd.DataFrame(columns = ['node', 'r'])
     error_groups = 0
     # create ranking for each grouping
     for grouping in groupings:
@@ -154,7 +210,7 @@ def nansum(to_sum):
 
 def group_rank(df, k):
     groupings = group_similar_scoring(df, k) 
-    r_groups = pd.DataFrame(columns = ['element', 'r'])
+    r_groups = pd.DataFrame(columns = ['node', 'r'])
     fake_teams = set()
     error = 0
     # create ranking for each grouping
@@ -175,6 +231,6 @@ def group_rank(df, k):
         (group_rank, group_error) = rank(small_game_df)
         r_groups = pd.concat([r_groups,group_rank])
         error += group_error
-    r_groups = r_groups[~r_groups['element'].isin(fake_teams)]
+    r_groups = r_groups[~r_groups['node'].isin(fake_teams)]
     r_groups = r_groups.reset_index(drop = True)
     return(r_groups, error)
