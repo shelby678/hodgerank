@@ -26,7 +26,7 @@ def df_to_dict_list(df):
         data.append(voter_dict)
     return data
 
-#TODOL preprocess
+#TODO: preprocess
 
 # gets all nodes from voter data structures as a list of dictionaries
 def get_nodes(data):
@@ -138,64 +138,57 @@ def naive_rank_0(data):
     #(f, W) = get_f_W(data, nodes)
     return (rank_df) #get_error(f, W, naive_r, nodes)
 
-# Ranks the nodes in the df by calculating the mean pairwise difference of each node
-# The input and output are structured the same as rank()
-# TODO: revise this <3
-def naive_rank(df):
-    nodes = list(df.columns)
-    if len(list(set(nodes))) != len(nodes):
-        raise Exception("All columns must have different names")
-    naive_r = [0]*len(nodes)
-    node_weights = [0]*len(nodes)
-    for index, row in df.iterrows():
-        row_nodes = [node for node in nodes if not np.isnan(row[node])]
-        for edge in get_edges(row_nodes):
-            naive_r[nodes.index(edge[0])] += row[edge[0]] - row[edge[1]]
-            naive_r[nodes.index(edge[1])] += row[edge[1]] - row[edge[0]]
-            node_weights[nodes.index(edge[0])] += 1
-            node_weights[nodes.index(edge[1])] += 1
-    for i in range(len(naive_r)):
-        if node_weights[i] != 0:
-            naive_r[i] = naive_r[i]/node_weights[i]
+# Ranks by the mean pairwise difference of each node
+def naive_rank(data):
+    #initialize nodes, sum_scores, total_votes
+    nodes = get_nodes(data)
+    (f, W) = get_f_W(data, nodes)
+    sum_scores = dict()
+    naive_r = dict()
+    for node in nodes:
+        sum_scores[node] = 0
+    total_votes = sum_scores.copy()
+    edges = get_edges(nodes)
+    for node in nodes:
+        # populate total_votes, sum_scores
+        for i, edge  in enumerate(edges):
+            if edge[0] == node:
+                sum_scores[node] -= f[i]
+            if edge[1] == node:
+                sum_scores[node] += f[i]
+            else:
+                continue
+            total_votes[node] += W[i, i]
+        # calculate final score
+        if total_votes[node] == 0:
+            naive_r[node] = 0
         else:
-            naive_r[i] = - 100000
-    #naive_r = [naive_r[i]/node_weights[i] for i in range(len(naive_r))]
-    naive_rank_df = pd.DataFrame({'node': nodes,'r': naive_r})
-    naive_rank_df = naive_rank_df.sort_values(by =['r'],  ascending = False)
-    naive_rank_df = naive_rank_df.reset_index(drop = True)
-    return (naive_rank_df, get_error(get_f_W(df)[0], get_f_W(df)[1], naive_r, nodes))
+            naive_r[node] = sum_scores[node]/total_votes[node]
+    # format into a df
+    rank_df = pd.DataFrame.from_dict(naive_r, orient = 'index', columns = ['r'])
+    rank_df = rank_df.reset_index()
+    rank_df = rank_df.rename(columns = {'index':'node'})
+    rank_df = rank_df.sort_values(by =['r'],  ascending = False)
+    rank_df = rank_df.reset_index(drop = True)
+    #(f, W) = get_f_W(data, nodes)
+    return (rank_df) #get_error(f, W, naive_r, nodes)
 
-# where k is the number of groups, returns a list of lengths of how big each
-# group of nodes should be
-# ex: get_group_lengths({df with 10 nodes/ cols}, 3) => [4, 3, 3]
-def get_group_lengths(df, k):
-    num_nodes = len(list(df.columns))
-    group_size = math.floor(num_nodes/k)
-    group_lengths = [group_size]*k
-    for n in range(num_nodes - group_size * len(group_lengths)):
-        group_lengths[n % len(group_lengths)] += 1
-    return(group_lengths)
-
-# where k is the number of groups, returns a list of groupings of the nodes in df
+# returns a list of groupings sorted by naive rank
 # ex: group_similar_scoring({df with cols 'a', 'b', 'c'}, 2) => [['a', 'b'], ['c']]
-def group_similar_scoring(df, k):
-    naive_r = naive_rank(df)[0]
-    # sort by score
-    scores_df = naive_r[['r', 'node']]
-    scores_df = scores_df.sort_values(by =['r'],  ascending = False)
-    scores_df = scores_df.reset_index(drop = True)
-    ranked_teams = list(scores_df["node"])
-    # fill list with groups of teams, sorted by score
-    groupings = []
-    for group_length in get_group_lengths(df, k):
-        groupings.append(ranked_teams[0:group_length])
-        ranked_teams = ranked_teams[group_length:]
+def group_similar_scoring(data, k):
+    # get naive rank
+    naive_r = naive_rank(data)
+    ranked_teams = list(naive_r["node"])
+    # split up teams
+    groupings = list(np.array_split(ranked_teams, k))
+    groupings = [grouping.tolist() for grouping in groupings]
     return(groupings)
 
+#TODO: revise
 # Ranks the nodes in df by creating rankings on k different groups (organized by naive_rank()) 
 # and stacking the final scores on top of eachother
-def simple_group_rank(df, k):
-    groupings = group_similar_scoring(df, k)
+def simple_group_rank(data, k):
+    groupings = group_similar_scoring(data, k)
     r_groups = pd.DataFrame(columns = ['node', 'r'])
     error_groups = 0
     # create ranking for each grouping
@@ -221,7 +214,7 @@ def nansum(to_sum):
                 sum[j] = np.nansum([to_sum[i][j], sum[j]])
     return sum
 
-
+#TODO: revise
 def group_rank(df, k):
     groupings = group_similar_scoring(df, k) 
     r_groups = pd.DataFrame(columns = ['node', 'r'])
