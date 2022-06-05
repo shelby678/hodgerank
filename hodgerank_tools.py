@@ -184,22 +184,37 @@ def group_similar_scoring(data, k):
     groupings = [grouping.tolist() for grouping in groupings]
     return(groupings)
 
-#TODO: revise
+# returns intersection of two listss
+def intersection(lst1, lst2):
+    # Use of hybrid method
+    temp = set(lst2)
+    lst3 = [value for value in lst1 if value in temp]
+    return lst3
+
 # Ranks the nodes in df by creating rankings on k different groups (organized by naive_rank()) 
 # and stacking the final scores on top of eachother
 def simple_group_rank(data, k):
+    # get groupings
     groupings = group_similar_scoring(data, k)
-    r_groups = pd.DataFrame(columns = ['node', 'r'])
-    error_groups = 0
+    # inititialize r_groups, error
+    r = pd.DataFrame(columns = ['node', 'r'])
+    error = 0
     # create ranking for each grouping
     for grouping in groupings:
-        small_game_df = df[grouping]
-        small_game_df = small_game_df.dropna(how='all')
-        (group_rank, group_error) = rank(small_game_df)
-        r_groups = pd.concat([r_groups,group_rank])
-        error_groups += group_error
-    r_groups = r_groups.reset_index(drop = True)
-    return(r_groups, error_groups)
+        # build grouping_data
+        grouping_data = []
+        for voter in data:
+            intersect = intersection(list(voter.keys()), grouping)
+            if len(intersect) > 2:
+                subset = {node: score for node, score in voter.items() if node in intersect}
+                grouping_data.append(subset)
+        # get ranking
+        (group_rank, group_error) = rank(grouping_data)
+        # add group rank,  error to overall
+        r = pd.concat([r,group_rank])
+        error += group_error
+    r = r.reset_index(drop = True)
+    return(r, error)
 
 # a specialized method that returns the sum across the first axis of a list of lists, 
 # treating nan's as 0 unless the entire row is nans
