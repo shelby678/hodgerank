@@ -26,6 +26,8 @@ def df_to_dict_list(df):
         data.append(voter_dict)
     return data
 
+#TODOL preprocess
+
 # gets all nodes from voter data structures as a list of dictionaries
 def get_nodes(data):
     nodes = set()
@@ -61,7 +63,7 @@ def get_f_W(data, nodes):
             f[i] = 0
     return (f, W)
 
-#TODO: revise
+#TODO: revise this to fit the data frame version of ranks <3
 # returns the error of this ranking according to some ranking r, which is a list containing
 # the overall (numerical) rating of each node, indexed by the nodes in nodes
 def get_error(f, W, r, nodes):
@@ -86,13 +88,10 @@ def get_neg_divergence(nodes):
                 neg_divergence[i,j] = 1
     return neg_divergence
 
-# ranks the nodes in the df according to HodgeRank, where df is a 
-# pandas dataframe such that the columns represent the nodes to be ranked and each 
-# row gives a voter's ratings
+# ranks based on hodgerank
 # returns:
-# - pandas data frame representing the overall rating of each node, with two columns, node and
-# r, which is the numerical score
-# - error of this ranking
+# - ranking
+# - error
 def rank(data):
     nodes = get_nodes(data)
     # get edges, negative divergence, f, and W
@@ -110,19 +109,34 @@ def rank(data):
     #rank_df.to_csv('data/hodge_ranking.csv') # uncomment this line if you want to save the ranking
     return(rank_df, get_error(f, W, r, nodes))
     
-# Ranks the nodes in the df by calculating the average score given to them. The input and output 
-# are structured the same as rank()
-def naive_rank_0(df):
-    nodes = list(df.columns)
-    if len(list(set(nodes))) != len(nodes):
-        raise Exception("All columns must have different names")
-    naive_r = [0]*len(nodes)
-    for i, node in enumerate(nodes):
-        naive_r[i] = df[node].mean()
-    naive_rank_df = pd.DataFrame({'node': nodes, 'r': naive_r})
-    naive_rank_df = naive_rank_df.sort_values(by =['r'],  ascending = False)
-    naive_rank_df = naive_rank_df.reset_index(drop = True)
-    return (naive_rank_df, get_error(get_f_W(df)[0], get_f_W(df)[1], naive_r, nodes))
+# Ranks based on average score
+# returns:
+# - ranking
+# - error
+def naive_rank_0(data):
+    #initialize nodes, sum_scores, total_votes
+    nodes = get_nodes(data)
+    sum_scores = dict()
+    naive_r = dict()
+    for node in nodes:
+        sum_scores[node] = 0
+    total_votes = sum_scores.copy()
+    # get sum_scores, total_votes from data
+    for voter in data:
+        for node in list(voter.keys()):
+            total_votes[node] += 1
+            sum_scores[node] += voter[node]
+    # get final naive_r
+    for node in nodes:
+        naive_r[node] = sum_scores[node]/total_votes[node]
+    # format into a df
+    rank_df = pd.DataFrame.from_dict(naive_r, orient = 'index', columns = ['r'])
+    rank_df = rank_df.reset_index()
+    rank_df = rank_df.rename(columns = {'index':'node'})
+    rank_df = rank_df.sort_values(by =['r'],  ascending = False)
+    rank_df = rank_df.reset_index(drop = True)
+    #(f, W) = get_f_W(data, nodes)
+    return (rank_df) #get_error(f, W, naive_r, nodes)
 
 # Ranks the nodes in the df by calculating the mean pairwise difference of each node
 # The input and output are structured the same as rank()
