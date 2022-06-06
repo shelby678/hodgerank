@@ -44,14 +44,15 @@ def get_nodes(data):
 # where df is a pandas dataframe such that the columns represent the nodes to be ranked and each 
 # row gives a voter's ratings
 def get_f_W(data, nodes):
-    
+    nodes.sort()
     edges = get_edges(nodes)
     f = np.zeros((len(edges)))
     W = np.zeros((len(edges), len(edges)))
     # iterate through each voter's ratings
     for voter in data:
-    
-        for edge in get_edges(list(voter.keys())):
+        vote_nodes = list(voter.keys())
+        vote_nodes.sort()
+        for edge in get_edges(vote_nodes):
             # for each edge in this voter's graph, add pairwise difference to f and add 1 to W
             f[edges.index(edge)] += voter[edge[1]] - voter[edge[0]]
             W[edges.index(edge), edges.index(edge)] += 1
@@ -191,7 +192,7 @@ def intersection(lst1, lst2):
     lst3 = [value for value in lst1 if value in temp]
     return lst3
 
-# Ranks the nodes in df by creating rankings on k different groups (organized by naive_rank()) 
+# Ranks the nodes in data by creating rankings on k different groups (organized by naive_rank()) 
 # and stacking the final scores on top of eachother
 def simple_group_rank(data, k):
     # get groupings
@@ -216,43 +217,45 @@ def simple_group_rank(data, k):
     r = r.reset_index(drop = True)
     return(r, error)
 
-# a specialized method that returns the sum across the first axis of a list of lists, 
-# treating nan's as 0 unless the entire row is nans
-# ex: nansum([[5, np.nan, 1],       =>    [15, np.nan, 2] 
-#             [5, np.nan, np.nan],   
-#             [5, np.nan, 1]])
-def nansum(to_sum):
-    sum = [np.nan]*len(to_sum[0])
-    for j in range(len(sum)):
-        for i in range(len(to_sum)):
-            if not np.isnan(to_sum[i][j]):
-                sum[j] = np.nansum([to_sum[i][j], sum[j]])
-    return sum
-
-#TODO: revise
-def group_rank(df, k):
-    groupings = group_similar_scoring(df, k) 
+# ranks by organizing nodes into groupings and ranking on each grouping, 
+# with nodes not included in this grouping included together as general nodes
+def group_rank(data, k):
+    groupings = group_similar_scoring(data, k) 
     r_groups = pd.DataFrame(columns = ['node', 'r'])
-    fake_teams = set()
+    fake_nodes = []
+    for i in range(len(groupings)):
+        fake_nodes.append('OTHER_GROUP' + str(i))
     error = 0
     # create ranking for each grouping
-    for grouping in groupings:
+    for i, grouping  in enumerate(groupings):
         new_grouping = grouping.copy()
-        small_game_df = df.copy()
-        for i, other_grouping in enumerate(groupings):
-            if other_grouping == grouping: 
-                continue
-            fake_team_col = [[np.nan]*len(small_game_df.index)]
-            fake_team_name = 'OTHER_TEAM' + str(i)
-            fake_teams.add(fake_team_name)
-            for group in other_grouping:
-                fake_team_col.append( list(small_game_df[group]))
-                small_game_df = small_game_df.drop(columns = [group])
-            fake_team_col = nansum(fake_team_col)
-            small_game_df[fake_team_name] = fake_team_col
-        (group_rank, group_error) = rank(small_game_df)
+        # populate mini data_set
+        small_data = []
+        for voter in data:
+            new_vote = dict()
+            # preset fake_nodes to np.nan
+            for node in fake_nodes:
+                new_vote[node] = np.nan
+            # include each node's data 
+            for node, score in voter.items():
+                group_index = 0
+                # find index of this node's group
+                while node not in groupings[group_index]:
+                    group_index += 1
+                # copy data if in current grouping
+                if group_index == i:
+                    new_vote[node] = score
+                # add data to fake node otherwise
+                else: 
+                    new_vote[fake_nodes[group_index]] = np.nansum([score, new_vote[fake_nodes[group_index]]])
+            # remove key-value pairs where value is nan
+            new_vote = {node: score for node, score in new_vote.items() if not np.isnan(score)}
+            small_data.append(new_vote)
+        # rank small data
+        (group_rank, group_error) = rank(small_data)
         r_groups = pd.concat([r_groups,group_rank])
         error += group_error
-    r_groups = r_groups[~r_groups['node'].isin(fake_teams)]
+    # get rid of fake nodes
+    r_groups = r_groups[~r_groups['node'].isin(fake_nodes)]
     r_groups = r_groups.reset_index(drop = True)
     return(r_groups, error)
