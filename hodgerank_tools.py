@@ -47,7 +47,7 @@ def get_f_W(data, nodes):
     nodes.sort()
     edges = get_edges(nodes)
     f = np.zeros((len(edges)))
-    W = np.zeros((len(edges), len(edges)))
+    W = np.zeros((len(edges), len(edges)), dtype = np.int16)
     # iterate through each voter's ratings
     for voter in data:
         vote_nodes = list(voter.keys())
@@ -137,7 +137,7 @@ def naive_rank_0(data):
     rank_df = rank_df.sort_values(by =['r'],  ascending = False)
     rank_df = rank_df.reset_index(drop = True)
     #(f, W) = get_f_W(data, nodes)
-    return (rank_df) #get_error(f, W, naive_r, nodes)
+    return (rank_df, np.nan) #get_error(f, W, naive_r, nodes)
 
 # Ranks by the mean pairwise difference of each node
 def naive_rank(data):
@@ -172,13 +172,13 @@ def naive_rank(data):
     rank_df = rank_df.sort_values(by =['r'],  ascending = False)
     rank_df = rank_df.reset_index(drop = True)
     #(f, W) = get_f_W(data, nodes)
-    return (rank_df) #get_error(f, W, naive_r, nodes)
+    return (rank_df, np.nan) #get_error(f, W, naive_r, nodes)
 
 # returns a list of groupings sorted by naive rank
 # ex: group_similar_scoring({df with cols 'a', 'b', 'c'}, 2) => [['a', 'b'], ['c']]
 def group_similar_scoring(data, k):
     # get naive rank
-    naive_r = naive_rank(data)
+    naive_r = naive_rank_0(data)[0]
     ranked_teams = list(naive_r["node"])
     # split up teams
     groupings = list(np.array_split(ranked_teams, k))
@@ -211,6 +211,7 @@ def simple_group_rank(data, k):
                 grouping_data.append(subset)
         # get ranking
         (group_rank, group_error) = rank(grouping_data)
+        print(group_rank)
         # add group rank,  error to overall
         r = pd.concat([r,group_rank])
         error += group_error
