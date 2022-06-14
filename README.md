@@ -3,13 +3,12 @@
 ## Usage
 All useful functions in this repository are in hodgerank_tools.py, examples of their use can be found in rank_nba.ipynb.
 ### Structuring Data
-In order to use most of the functions in hodgerank_tools, your data has to be in a particular format. The data frame that is expected
-should have the elements being ranked (symptoms, basketball teams, etc.) as the columns and with each row representing a voter's opinions.
+Most functions in hodgerank_tools, take data as input, which should be structured as a list of dictionaries, where each
+dictionary represents a voter's preferences.
 
-Example:  
-         Fever | Sore Throat | Cough | Nausea  
-(Person 1:)  3       2            2        5  
-(Person 2:)  7       8            9       NaN  
-(Person 3:)  1       2            1        3
-
-Additionally, elements that weren't rated by a voter should receive a value of [np.nan](https://numpy.org/doc/stable/user/misc.html).
+Example:
+```
+my_data = [{"Fever":3, "Sore Throat": 2, "Nausea": 5},
+            {"Fever":6, "Sore Throat": 2, "Cough": 2, "Nausea": 1}, 
+            ...]
+```
